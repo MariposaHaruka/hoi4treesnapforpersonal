@@ -1196,46 +1196,51 @@ func traverseStyles(root *ptool.TNode) {
 var sharedFocusIndex = make(map[string]string) // id → filepath
 
 func indexSharedFocuses(modPath string) error {
-	dir := filepath.Join(modPath, "common", "national_focus")
+    dir := filepath.Join(modPath, "common", "national_focus")
+    entries, err := os.ReadDir(dir)
+    if err != nil {
+        return nil
+    }
+    for _, e := range entries {
+        if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".txt") {
+            continue
+        }
+        fpath := filepath.Join(dir, e.Name())
+        raw, err := readFile(fpath)
+        if err != nil {
+            continue
+        }
+        node, err := parsePdxSource(raw)
+        if err != nil {
+            continue
+        }
+        indexSharedFocusNodes(node.Links, fpath)
+    }
+    return nil
+}
 
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil // 없으면 무시
-	}
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".txt") {
-			continue
-		}
-		fpath := filepath.Join(dir, e.Name())
-		raw, err := readFile(fpath)
-		if err != nil {
-			continue
-		}
-		node, err := parsePdxSource(raw)
-		if err != nil {
-			continue
-		}
-		// joint_focus / shared_focus 블록에서 id 수집
-		for _, n := range node.Links {
-			if pdx.ByID(n.Type) != "declrScope" {
-				continue
-			}
-			kw := strings.ToLower(n.Links[0].Value)
-			if kw != "joint_focus" && kw != "shared_focus" && kw != "focus" {
-				continue
-			}
-			for _, link := range n.Links {
-				if pdx.ByID(link.Type) == "declr" &&
-					strings.ToLower(link.Links[0].Value) == "id" {
-					id := strings.TrimSpace(link.Links[1].Value)
-					if _, exists := sharedFocusIndex[id]; !exists {
-						sharedFocusIndex[id] = fpath
-					}
-				}
-			}
-		}
-	}
-	slog.Debug("sharedFocusIndex built", "count", len(sharedFocusIndex))
-	return nil
-
+func indexSharedFocusNodes(links []*ptool.TNode, fpath string) {
+    for _, n := range links {
+        if pdx.ByID(n.Type) != "declrScope" {
+            continue
+        }
+        kw := strings.ToLower(n.Links[0].Value)
+        if kw == "focus_tree" {
+            // focus_tree 안을 재귀 스캔
+            indexSharedFocusNodes(n.Links, fpath)
+            continue
+        }
+        if kw != "focus" && kw != "shared_focus" && kw != "joint_focus" {
+            continue
+        }
+        for _, link := range n.Links {
+            if pdx.ByID(link.Type) == "declr" &&
+                strings.ToLower(link.Links[0].Value) == "id" {
+                id := strings.TrimSpace(link.Links[1].Value)
+                if _, exists := sharedFocusIndex[id]; !exists {
+                    sharedFocusIndex[id] = fpath
+                }
+            }
+        }
+    }
 }
