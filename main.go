@@ -32,17 +32,20 @@ var focusFilesLabel *widget.Label
 var gamePathLabel *widget.Label
 var modPathsLabel *widget.Label
 
-var language = "l_english"
+var language = "l_korean"
 var spacingX = 131
 var spacingY = 63
+var styleMap = make(map[string]FocusStyle)
 
 var focusMap = make(map[string]Focus)
 var gfxMap = make(map[string]SpriteType)
 var fontMap = make(map[string]BitmapFont)
 var locMap = make(map[string]map[string]Localisation)
+var fontOverrideMap = make(map[string]map[string]BitmapFont)
 var gui FocusGUI
 var font, fontTreeTitle bmfonter.Font
 var locList, gfxList []string
+var pendingSharedRefs []string
 
 var buf = new(bytes.Buffer)
 var e = gob.NewEncoder(buf)
@@ -87,6 +90,7 @@ type Focus struct {
 	ID                 string
 	Icon               string
 	Text               string
+	TextIcon           string
 	X                  int
 	Y                  int
 	RelativePositionID string
@@ -127,6 +131,14 @@ type Localisation struct {
 	Key    string
 	Number string
 	Value  string
+}
+
+type FocusStyle struct {
+	Name        string
+	Unavailable string
+	Completed   string
+	Available   string
+	Current     string
 }
 
 type FocusGUI struct {

@@ -3,8 +3,8 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"encoding/gob"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -65,10 +65,12 @@ type sharedSpriteType struct {
 }
 
 type sharedRenderContext struct {
-	GUI           FocusGUI
-	GFX           map[string]sharedSpriteType
-	Fonts         map[string]BitmapFont
-	Localisations map[string]Localisation
+	GUI              FocusGUI
+	GFX              map[string]sharedSpriteType
+	Fonts            map[string]BitmapFont
+	Localisations    map[string]Localisation
+	Styles           map[string]FocusStyle
+	SharedFocusIndex map[string]string
 }
 
 type focusWorkerResult struct {
@@ -281,13 +283,35 @@ func buildSharedRenderContext(ctx context.Context, selected []string, baseModPat
 		return nil, nil, nil, err
 	}
 	locMap[language] = make(map[string]Localisation)
+	allModPaths := mergeModPaths(baseModPaths, selectedModPaths)
 	locList = sortedKeys(locReq)
+	for _, p := range allModPaths {
+		if err := parseStyles(p); err != nil {
+			slog.Warn("failed to parse styles", "path", p, "error", err)
+		}
+	}
+	for _, style := range styleMap {
+		for _, name := range []string{style.Unavailable, style.Available, style.Completed, style.Current} {
+			if name != "" {
+				gfxReq[name] = struct{}{}
+			}
+		}
+	}
 	gfxList = sortedKeys(gfxReq)
 
-	allModPaths := mergeModPaths(baseModPaths, selectedModPaths)
-	if err := checkGenerationCancelled(ctx); err != nil {
-		return nil, nil, nil, err
+	for _, p := range allModPaths {
+		if err := parseStyles(p); err != nil {
+			slog.Warn("failed to parse styles", "path", p, "error", err)
+		}
 	}
+	for _, style := range styleMap {
+		for _, name := range []string{style.Unavailable, style.Available, style.Completed, style.Current} {
+			if name != "" {
+				gfxReq[name] = struct{}{}
+			}
+		}
+	}
+	gfxList = sortedKeys(gfxReq) // 스타일 스프라이트 반영해서 갱신
 	guiPath := findGUIPath(allModPaths)
 	setProgressTask("Parsing GUI from " + filepath.Base(guiPath))
 	if err := parseGUI(guiPath); err != nil {
@@ -307,6 +331,13 @@ func buildSharedRenderContext(ctx context.Context, selected []string, baseModPat
 	setProgressValue(0.18)
 
 	for _, p := range allModPaths {
+		if err := indexSharedFocuses(p); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	setProgressValue(0.22)
+
+	for _, p := range allModPaths {
 		if err := checkGenerationCancelled(ctx); err != nil {
 			return nil, nil, nil, err
 		}
@@ -318,6 +349,7 @@ func buildSharedRenderContext(ctx context.Context, selected []string, baseModPat
 	setProgressTask("Shared context ready")
 	setProgressValue(0.25)
 
+	applyFontOverrides(language)
 	shared := snapshotSharedRenderContext()
 	resetGenerationState()
 	return shared, validPaths, skippedFocusFiles, nil
@@ -1013,6 +1045,11 @@ func snapshotSharedRenderContext() *sharedRenderContext {
 		GFX:           make(map[string]sharedSpriteType, len(gfxMap)),
 		Fonts:         make(map[string]BitmapFont, len(fontMap)),
 		Localisations: make(map[string]Localisation, len(locMap[language])),
+		Styles:        make(map[string]FocusStyle, len(styleMap)),
+	}
+	shared.Styles = make(map[string]FocusStyle, len(styleMap))
+	for name, style := range styleMap {
+		shared.Styles[name] = style
 	}
 	for name, sprite := range gfxMap {
 		shared.GFX[name] = sharedSpriteType{
@@ -1029,7 +1066,15 @@ func snapshotSharedRenderContext() *sharedRenderContext {
 	for key, loc := range locMap[language] {
 		shared.Localisations[key] = loc
 	}
+	for name, style := range styleMap {
+		shared.Styles[name] = style
+	}
 	return shared
+	shared.SharedFocusIndex = make(map[string]string, len(sharedFocusIndex))
+	for k, v := range sharedFocusIndex {
+		shared.SharedFocusIndex[k] = v
+	}
+	return nil
 }
 
 func applySharedRenderContext(shared *sharedRenderContext) {
@@ -1052,6 +1097,14 @@ func applySharedRenderContext(shared *sharedRenderContext) {
 	locMap[language] = make(map[string]Localisation, len(shared.Localisations))
 	for key, loc := range shared.Localisations {
 		locMap[language][key] = loc
+	}
+	styleMap = make(map[string]FocusStyle, len(shared.Styles))
+	for name, style := range shared.Styles {
+		styleMap[name] = style
+	}
+	sharedFocusIndex = make(map[string]string, len(shared.SharedFocusIndex))
+	for k, v := range shared.SharedFocusIndex {
+		sharedFocusIndex[k] = v
 	}
 }
 
@@ -1114,6 +1167,8 @@ func resetGenerationState() {
 	gfxMap = make(map[string]SpriteType)
 	fontMap = make(map[string]BitmapFont)
 	locMap = make(map[string]map[string]Localisation)
+	fontOverrideMap = make(map[string]map[string]BitmapFont)
+	styleMap = make(map[string]FocusStyle)
 	gui = FocusGUI{}
 	locList = nil
 	gfxList = nil
@@ -1139,4 +1194,6 @@ func resetGenerationState() {
 	ULR = nil
 	DLR = nil
 	UDLR = nil
+	sharedFocusIndex = make(map[string]string)
+	pendingSharedRefs = nil
 }

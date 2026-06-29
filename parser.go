@@ -5,6 +5,7 @@ import (
 	"image"
 	"log/slog"
 	"math"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -66,9 +67,23 @@ func parseFocus(path string) error {
 		_ = node
 		// fmt.Println(ptool.TreeToString(node, pdx.ByID))
 		err = traverseFocus(node)
-		if err != nil {
-			return err
+		slog.Debug("pendingSharedRefs after traverseFocus", "refs", pendingSharedRefs)
+		if err := traverseFocus(node); err != nil {
+			slog.Warn("traverseFocus error", "path", path, "err", err)
+			// 에러가 있어도 pendingSharedRefs 처리는 계속 진행
 		}
+		for _, id := range pendingSharedRefs {
+			if _, exists := focusMap[id]; exists {
+				continue
+			}
+			if fpath, ok := sharedFocusIndex[id]; ok {
+				if err := parseFocus(fpath); err != nil {
+					slog.Warn("failed to parse shared focus file", "id", id, "path", fpath)
+				}
+			}
+		}
+		pendingSharedRefs = nil
+		return nil
 	}
 	return nil
 }
@@ -77,9 +92,13 @@ func traverseFocus(root *ptool.TNode) error {
 	for _, node := range root.Links {
 		nodeType := pdx.ByID(node.Type)
 		switch nodeType {
+		case "declr":
+			if strings.ToLower(node.Links[0].Value) == "shared_focus" {
+				pendingSharedRefs = append(pendingSharedRefs, node.Links[1].Value)
+			}
 		case "declrScope":
 			switch strings.ToLower(node.Links[0].Value) {
-			case "focus", "shared_focus":
+			case "focus", "shared_focus", "joint_focus":
 				var f Focus
 				f.AllowBranch = true
 				f.Available = true
@@ -93,6 +112,8 @@ func traverseFocus(root *ptool.TNode) error {
 						case "id":
 							f.ID = link.Links[1].Value
 							locList = append(locList, link.Links[1].Value)
+						case "text_icon":
+							f.TextIcon = link.Links[1].Value
 						case "icon":
 							f.Icon = link.Links[1].Value
 							gfxList = append(gfxList, "\""+link.Links[1].Value+"\"")
@@ -850,7 +871,7 @@ func parseGFX(path string, i int) error {
 			return err
 		}
 
-		if stringContainsSlice(f, gfxList) {
+		if stringContainsSlice(f, gfxList) || strings.Contains(f, "bitmapfont_override") {
 			slog.Debug("parsing GFX file", "path", fPath)
 			if len(f) > 0 {
 				node, err := parsePdxSource(f)
@@ -933,6 +954,54 @@ func traverseGFX(root *ptool.TNode, path string) error {
 					b.Fontfiles = append(b.Fontfiles, b.Path)
 				}
 				fontMap[b.Name] = b
+			case "bitmapfont_override":
+				var b BitmapFont
+				var languages []string
+				for _, link := range node.Links {
+					nodeType := pdx.ByID(link.Type)
+					switch nodeType {
+					case "declr":
+						switch strings.ToLower(link.Links[0].Value) {
+						case "name":
+							b.Name = link.Links[1].Value
+						case "path":
+							b.Path = filepath.Join(path, link.Links[1].Value)
+						}
+					case "declrScope":
+						switch strings.ToLower(link.Links[0].Value) {
+						case "fontfiles":
+							for _, link := range link.Links {
+								if pdx.ByID(link.Type) == "list" {
+									for _, link := range link.Links {
+										if pdx.ByID(link.Type) == "anyType" {
+											b.Fontfiles = append(b.Fontfiles, filepath.Join(path, trimQuotes(link.Value)))
+										}
+									}
+								}
+							}
+						case "languages":
+							for _, link := range link.Links {
+								if pdx.ByID(link.Type) == "list" {
+									for _, link := range link.Links {
+										if pdx.ByID(link.Type) == "anyType" {
+											languages = append(languages, trimQuotes(link.Value))
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+				if len(b.Fontfiles) < 1 && b.Path != "" {
+					b.Fontfiles = append(b.Fontfiles, b.Path)
+				}
+				for _, lang := range languages {
+					if _, ok := fontOverrideMap[lang]; !ok {
+						fontOverrideMap[lang] = make(map[string]BitmapFont)
+					}
+					fontOverrideMap[lang][b.Name] = b
+					slog.Debug("registered font override", "language", lang, "font", b.Name)
+				}
 			default:
 				err = traverseGFX(node, path)
 				if err != nil {
@@ -1061,4 +1130,112 @@ func isLocKey(s string) bool {
 		}
 	}
 	return true
+}
+
+func parseStyles(path string) error {
+	styleFiles, err := WalkMatchExt(filepath.Join(path, "common", "national_focus"), ".txt")
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, fPath := range styleFiles {
+		f, err := readFile(fPath)
+		if err != nil || !strings.Contains(f, "style") {
+			continue
+		}
+		slog.Debug("parsing style file", "path", fPath) // ← 추가
+		if len(f) > 0 {
+			node, err := parsePdxSource(f)
+			if err != nil {
+				slog.Warn("failed to parse style file", "path", fPath, "error", err)
+				continue
+			}
+			traverseStyles(node)
+		}
+	}
+	return nil
+}
+
+func traverseStyles(root *ptool.TNode) {
+	slog.Debug("traverseStyles", "links", len(root.Links))
+	for _, node := range root.Links {
+		if len(node.Links) == 0 {
+			continue
+		}
+		slog.Debug("traverseStyles node", "type", pdx.ByID(node.Type), "key", node.Links[0].Value)
+		if strings.ToLower(node.Links[0].Value) == "style" {
+			var s FocusStyle
+			for _, link := range node.Links {
+				if pdx.ByID(link.Type) == "declr" {
+					switch strings.ToLower(link.Links[0].Value) {
+					case "name":
+						s.Name = link.Links[1].Value
+					case "unavailable":
+						s.Unavailable = link.Links[1].Value
+					case "completed":
+						s.Completed = link.Links[1].Value
+					case "available":
+						s.Available = link.Links[1].Value
+					case "current":
+						s.Current = link.Links[1].Value
+					}
+				}
+			}
+			if s.Name != "" {
+				styleMap[s.Name] = s
+				slog.Debug("registered focus style", "name", s.Name)
+			}
+		} else {
+			traverseStyles(node)
+		}
+	}
+}
+
+var sharedFocusIndex = make(map[string]string) // id → filepath
+
+func indexSharedFocuses(modPath string) error {
+	dir := filepath.Join(modPath, "common", "national_focus")
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil // 없으면 무시
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".txt") {
+			continue
+		}
+		fpath := filepath.Join(dir, e.Name())
+		raw, err := readFile(fpath)
+		if err != nil {
+			continue
+		}
+		node, err := parsePdxSource(raw)
+		if err != nil {
+			continue
+		}
+		// joint_focus / shared_focus 블록에서 id 수집
+		for _, n := range node.Links {
+			if pdx.ByID(n.Type) != "declrScope" {
+				continue
+			}
+			kw := strings.ToLower(n.Links[0].Value)
+			if kw != "joint_focus" && kw != "shared_focus" && kw != "focus" {
+				continue
+			}
+			for _, link := range n.Links {
+				if pdx.ByID(link.Type) == "declr" &&
+					strings.ToLower(link.Links[0].Value) == "id" {
+					id := link.Links[1].Value
+					if _, exists := sharedFocusIndex[id]; !exists {
+						sharedFocusIndex[id] = fpath
+					}
+				}
+			}
+		}
+	}
+	slog.Debug("sharedFocusIndex built", "count", len(sharedFocusIndex))
+	return nil
+
 }

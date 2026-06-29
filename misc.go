@@ -463,3 +463,16 @@ func WalkMatchExt(root, ext string) ([]string, error) {
 
 	return match, nil
 }
+
+func applyFontOverrides(lang string) {
+	overrides, ok := fontOverrideMap[lang]
+	if !ok {
+		return
+	}
+	for name, override := range overrides {
+		if _, exists := fontMap[name]; exists {
+			fontMap[name] = override
+			slog.Debug("applied font override", "language", lang, "font", name)
+		}
+	}
+}

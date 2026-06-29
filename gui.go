@@ -13,7 +13,6 @@ import (
 	"image/jpeg"
 	"image/png"
 
-	xdraw "golang.org/x/image/draw"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -23,6 +22,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	xdraw "golang.org/x/image/draw"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -723,7 +724,7 @@ func selectLocLanguage(app fyne.App) {
 
 	w.SetContent(
 		container.NewVBox(
-			widget.NewRadioGroup([]string{"English", "Brazilian Portuguese", "German", "French", "Spanish", "Polish", "Russian"}, func(s string) { handleLocLanguageChange(s, w) }),
+			widget.NewRadioGroup([]string{"English", "Brazilian Portuguese", "German", "French", "Spanish", "Polish", "Russian", "Korean"}, func(s string) { handleLocLanguageChange(s, w) }),
 		),
 	)
 
@@ -747,6 +748,8 @@ func handleLocLanguageChange(s string, w fyne.Window) {
 		language = "l_polish"
 	case "Russian":
 		language = "l_russian"
+	case "Korean":
+		language = "l_korean"
 	}
 	ansi.Println("Language selected:", s)
 	w.Close()

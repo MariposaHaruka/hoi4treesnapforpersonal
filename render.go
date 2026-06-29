@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"image"
 	"image/draw"
-	"math"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,8 +24,32 @@ func renderFocus(dst draw.Image, x, y int, id string) error {
 
 	// Original game uses "GFX_technology_unavailable_item_bg" for some reason and replaces it with "GFX_focus_unavailable" via hardcoded part.
 	s := gfxMap["GFX_focus_unavailable"]
+	if f.TextIcon != "" {
+		slog.Debug("focus text_icon found", "focus_id", f.ID, "text_icon", f.TextIcon)
+		if style, ok := styleMap[f.TextIcon]; ok {
+			slog.Debug("style resolved", "style", f.TextIcon, "unavailable", style.Unavailable)
+			if _, spriteOK := gfxMap[style.Unavailable]; spriteOK {
+				slog.Debug("style sprite found in gfxMap", "sprite", style.Unavailable)
+			} else {
+				slog.Debug("style sprite MISSING from gfxMap", "sprite", style.Unavailable)
+			}
+		} else {
+			slog.Debug("style NOT in styleMap", "style", f.TextIcon)
+		}
+	}
 	if len(f.Prerequisite) == 0 && f.Available {
 		s = gfxMap["GFX_focus_can_start"]
+	}
+	if f.TextIcon != "" {
+		if style, ok := styleMap[f.TextIcon]; ok {
+			bgName := style.Unavailable
+			if len(f.Prerequisite) == 0 && f.Available && style.Available != "" {
+				bgName = style.Available
+			}
+			if bg, bgOK := gfxMap[bgName]; bgOK {
+				s = bg
+			}
+		}
 	}
 
 	err := renderSprite(dst, x+gui.BG.Position.X, y+gui.BG.Position.Y, gui.BG.Orientation, gui.BG.CenterPosition, s)
