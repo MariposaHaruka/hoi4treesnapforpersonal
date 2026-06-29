@@ -94,7 +94,7 @@ func traverseFocus(root *ptool.TNode) error {
 		switch nodeType {
 		case "declr":
 			if strings.ToLower(node.Links[0].Value) == "shared_focus" {
-				pendingSharedRefs = append(pendingSharedRefs, node.Links[1].Value)
+				pendingSharedRefs = append(pendingSharedRefs, strings.TrimSpace(node.Links[1].Value))
 			}
 		case "declrScope":
 			switch strings.ToLower(node.Links[0].Value) {
@@ -1227,7 +1227,7 @@ func indexSharedFocuses(modPath string) error {
 			for _, link := range n.Links {
 				if pdx.ByID(link.Type) == "declr" &&
 					strings.ToLower(link.Links[0].Value) == "id" {
-					id := link.Links[1].Value
+					id := strings.TrimSpace(link.Links[1].Value)
 					if _, exists := sharedFocusIndex[id]; !exists {
 						sharedFocusIndex[id] = fpath
 					}
