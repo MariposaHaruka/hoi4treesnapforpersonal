@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"log/slog"
 	"math"
@@ -83,9 +84,12 @@ func parseFocus(path string) error {
 				continue
 			}
 			if fpath, ok := sharedFocusIndex[id]; ok {
+				slog.Debug("resolving shared focus", "id", id, "path", fpath) // ← 추가
 				if err := parseFocus(fpath); err != nil {
 					slog.Warn("failed to parse shared focus file", "id", id, "path", fpath)
 				}
+			} else {
+				slog.Debug("shared focus id not found in index", "id", fmt.Sprintf("%q", id)) // ← 추가
 			}
 		}
 		pendingSharedRefs = nil
@@ -207,6 +211,7 @@ func traverseFocus(root *ptool.TNode) error {
 						}
 					}
 				}
+				slog.Debug("adding focus to map", "id", f.ID, "x", f.X, "y", f.Y)
 				focusMap[f.ID] = f
 			default:
 				err := traverseFocus(node)
@@ -1205,8 +1210,10 @@ func indexSharedFocuses(modPath string) error {
 	dir := filepath.Join(modPath, "common", "national_focus")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
+		slog.Debug("indexSharedFocuses dir read failed", "modPath", modPath, "dir", dir, "err", err) // ← 추가
 		return nil
 	}
+	slog.Debug("indexSharedFocuses scanning", "modPath", modPath, "fileCount", len(entries)) // ← 추가
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".txt") {
 			continue
@@ -1233,8 +1240,10 @@ func indexSharedFocusNodes(links []*ptool.TNode, fpath string) {
 			continue
 		}
 		kw := strings.ToLower(n.Links[0].Value)
+		if strings.Contains(fpath, "IMA_shared") { // ← 추가
+			slog.Debug("indexSharedFocusNodes node", "kw", kw, "file", fpath) // ← 추가
+		}
 		if kw == "focus_tree" {
-			// focus_tree 안을 재귀 스캔
 			indexSharedFocusNodes(n.Links, fpath)
 			continue
 		}
@@ -1245,6 +1254,7 @@ func indexSharedFocusNodes(links []*ptool.TNode, fpath string) {
 			if pdx.ByID(link.Type) == "declr" &&
 				strings.ToLower(link.Links[0].Value) == "id" {
 				id := strings.TrimSpace(link.Links[1].Value)
+				slog.Debug("indexSharedFocuses adding id", "id", fmt.Sprintf("%q", id), "file", fpath) // ← 추가
 				if _, exists := sharedFocusIndex[id]; !exists {
 					sharedFocusIndex[id] = fpath
 				}

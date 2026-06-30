@@ -1047,7 +1047,6 @@ func snapshotSharedRenderContext() *sharedRenderContext {
 		Localisations: make(map[string]Localisation, len(locMap[language])),
 		Styles:        make(map[string]FocusStyle, len(styleMap)),
 	}
-	shared.Styles = make(map[string]FocusStyle, len(styleMap))
 	for name, style := range styleMap {
 		shared.Styles[name] = style
 	}
@@ -1066,15 +1065,13 @@ func snapshotSharedRenderContext() *sharedRenderContext {
 	for key, loc := range locMap[language] {
 		shared.Localisations[key] = loc
 	}
-	for name, style := range styleMap {
-		shared.Styles[name] = style
-	}
-	return shared
+
 	shared.SharedFocusIndex = make(map[string]string, len(sharedFocusIndex))
 	for k, v := range sharedFocusIndex {
 		shared.SharedFocusIndex[k] = v
 	}
-	return nil
+
+	return shared
 }
 
 func applySharedRenderContext(shared *sharedRenderContext) {
