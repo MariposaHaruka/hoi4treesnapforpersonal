@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"fmt"
 	"image"
 	"log/slog"
 	"math"
@@ -51,10 +50,7 @@ var pdxRule = `
 	empty                = '';
 `
 
-// pair                 = @key ':' [@number] '"'#@value#'"' [@comment];
-
 func parseFocus(path string) error {
-	slog.Debug("parsing focus file", "path", path)
 	f, err := readFile(path)
 	if err != nil {
 		return err
@@ -65,31 +61,17 @@ func parseFocus(path string) error {
 		if err != nil {
 			return err
 		}
-		_ = node
-		// fmt.Println(ptool.TreeToString(node, pdx.ByID))
-		err = traverseFocus(node)
-		slog.Debug("pendingSharedRefs after traverseFocus", "refs", pendingSharedRefs)
 		if err := traverseFocus(node); err != nil {
-			slog.Warn("traverseFocus error", "path", path, "err", err)
-			// 에러가 있어도 pendingSharedRefs 처리는 계속 진행
+			return err
 		}
-		for id, f := range focusMap {
-			if strings.HasPrefix(id, "IMA_shared") {
-				slog.Debug("focusMap shared entry", "id", id, "x", f.X, "y", f.Y, "icon", f.Icon)
-			}
-		}
-		slog.Debug("pendingSharedRefs after traverseFocus", "refs", pendingSharedRefs)
 		for _, id := range pendingSharedRefs {
 			if _, exists := focusMap[id]; exists {
 				continue
 			}
 			if fpath, ok := sharedFocusIndex[id]; ok {
-				slog.Debug("resolving shared focus", "id", id, "path", fpath) // ← 추가
 				if err := parseFocus(fpath); err != nil {
 					slog.Warn("failed to parse shared focus file", "id", id, "path", fpath)
 				}
-			} else {
-				slog.Debug("shared focus id not found in index", "id", fmt.Sprintf("%q", id)) // ← 추가
 			}
 		}
 		pendingSharedRefs = nil
@@ -211,7 +193,6 @@ func traverseFocus(root *ptool.TNode) error {
 						}
 					}
 				}
-				slog.Debug("adding focus to map", "id", f.ID, "x", f.X, "y", f.Y)
 				focusMap[f.ID] = f
 			default:
 				err := traverseFocus(node)
@@ -1225,12 +1206,10 @@ func indexSharedFocuses(modPath string) error {
 		}
 		node, err := parsePdxSource(raw)
 		if err != nil {
-			slog.Debug("indexSharedFocuses parse error", "file", e.Name(), "err", err) // ← 추가
 			continue
 		}
 		indexSharedFocusNodes(node.Links, fpath)
 	}
-	slog.Debug("sharedFocusIndex built", "count", len(sharedFocusIndex)) // ← 추가
 	return nil
 }
 
@@ -1240,9 +1219,6 @@ func indexSharedFocusNodes(links []*ptool.TNode, fpath string) {
 			continue
 		}
 		kw := strings.ToLower(n.Links[0].Value)
-		if strings.Contains(fpath, "IMA_shared") { // ← 추가
-			slog.Debug("indexSharedFocusNodes node", "kw", kw, "file", fpath) // ← 추가
-		}
 		if kw == "focus_tree" {
 			indexSharedFocusNodes(n.Links, fpath)
 			continue
@@ -1250,11 +1226,13 @@ func indexSharedFocusNodes(links []*ptool.TNode, fpath string) {
 		if kw != "focus" && kw != "shared_focus" && kw != "joint_focus" {
 			continue
 		}
+		if kw == "shared_focus" || kw == "joint_focus" {
+			slog.Debug("indexSharedFocusNodes node", "kw", kw, "file", fpath)
+		}
 		for _, link := range n.Links {
 			if pdx.ByID(link.Type) == "declr" &&
 				strings.ToLower(link.Links[0].Value) == "id" {
 				id := strings.TrimSpace(link.Links[1].Value)
-				slog.Debug("indexSharedFocuses adding id", "id", fmt.Sprintf("%q", id), "file", fpath) // ← 추가
 				if _, exists := sharedFocusIndex[id]; !exists {
 					sharedFocusIndex[id] = fpath
 				}
